@@ -538,9 +538,6 @@ websocket.addEventListener('message', async (e) => {
   }
 
   if (data.type === 'mesg') {
-    console.log('incoming mesg');
-    unreadCount++;
-    updateUnreadCount();
     const container = document.getElementById('chatMessages');
     const msg = document.createElement('div');
     const name = document.createElement('b');
@@ -549,6 +546,10 @@ websocket.addEventListener('message', async (e) => {
     msg.appendChild(document.createTextNode(data.mesg));
     container.appendChild(msg);
     container.scrollTop = container.scrollHeight;
+    if (data.from != userId) {
+      unreadCount++;
+      updateUnreadCount();
+    }
   }
 });
 
@@ -627,10 +628,14 @@ document.getElementById('videoBtn')?.addEventListener('click', () => {
 
 document.getElementById('chatToggle')?.addEventListener('click', () => {
   document.querySelector('.main-container').classList.toggle('chat-open');
+  unreadCount = 0;
+  updateUnreadCount();
 });
 
 document.getElementById('chatClose')?.addEventListener('click', () => {
   document.querySelector('.main-container').classList.remove('chat-open');
+  unreadCount = 0;
+  updateUnreadCount();
 });
 
 document.getElementById('leaveBtn')?.addEventListener('click', () => {
