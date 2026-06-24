@@ -1,49 +1,55 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>  
+  <head>
     <title>Mooz</title>
     <link rel="stylesheet" href="style.css" />
-</head>
+  </head>
 
-<body>
+  <body>
     <header class="top-bar">
-        <h1><span class="logo-m">M</span>ooz</h1>
+      <h1><span class="logo-m">M</span>ooz</h1>
     </header>
-    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);">
-                <form onsubmit="setRole()" action="">
-                    <input required style="display: block; width: 30vw; margin:10px;" placeholder="Enter your name before clicking join" id="input" type="text">
-                    <button type="submit" class="btn">Create</button>
-                    <button type="submit" class="btn">Join Call</button>
-                </form>
-
+    <div
+      style="
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      "
+    >
+      <form onsubmit="setRole()" action="">
+        <input
+          required
+          style="display: block; width: 30vw; margin: 10px"
+          placeholder="Enter your name before clicking join"
+          id="input"
+          type="text"
+        />
+        <button type="submit" class="btn">Create</button>
+        <button type="submit" class="btn">Join Call</button>
+      </form>
     </div>
 
     <script>
-        
-        let userId = crypto.randomUUID()
-        let role = null;
+      let userId = crypto.randomUUID();
+      let role = null;
 
-        const myInput = document.getElementById('input');
+      const myInput = document.getElementById('input');
 
-        
-
-        function setRole(){
-            event.preventDefault()
-            if ( myInput.value == "Kagos123"){
-                localStorage.setItem("user", userId)
-                localStorage.setItem("role", "admin");
-                localStorage.setItem("name", "Hicon Resources")
-                window.location.href = "./index.html"
-            }
-            else {
-                localStorage.setItem("user", userId)
-                localStorage.setItem("role", "client")
-                localStorage.setItem("name", myInput.value)
-                 window.location.href = "./index.html"
-            }
+      function setRole() {
+        event.preventDefault();
+        if (myInput.value == 'Lawrence') {
+          localStorage.setItem('user', userId);
+          localStorage.setItem('role', 'admin');
+          localStorage.setItem('name', 'Lawrence');
+          window.location.href = './index.html';
+        } else {
+          localStorage.setItem('user', userId);
+          localStorage.setItem('role', 'client');
+          localStorage.setItem('name', myInput.value);
+          window.location.href = './index.html';
         }
-        
-</script>
-
-</body>
+      }
+    </script>
+  </body>
 </html>
