@@ -850,7 +850,7 @@ function createPeerConnection(peerId, initiator) {
       .catch(console.error);
   }
 
-  updateVideoBitrate();
+  updateVideoBitrate().catch(console.error);
 
   return peer;
 }
@@ -880,8 +880,6 @@ websocket.addEventListener('message', async (e) => {
   //listen for when a peer joins
   if (data.type === 'peer_joined') {
     peerNames.set(data.peerId, data.name);
-
-    updateVideoBitrate();
   }
 
   if (data.type === 'present_state') {
@@ -942,7 +940,7 @@ websocket.addEventListener('message', async (e) => {
     remoteStreams.delete(data.peerId);
     peerNames.delete(data.peerId);
     removeVideoElement(data.peerId);
-    updateVideoBitrate();
+    updateVideoBitrate().catch(console.error);
   }
 
   if (data.type === 'mesg') {
@@ -962,7 +960,7 @@ websocket.addEventListener('message', async (e) => {
 });
 
 async function updateVideoBitrate() {
-  let participationCount = peerConnections.size + 1;
+  let participantCount = peerConnections.size + 1;
 
   let bitrate;
 
