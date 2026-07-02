@@ -30,6 +30,7 @@
             <span class="btn" id="audioBtn">Mic <b>On</b></span>
             <span class="btn" id="videoBtn">Cam <b>On</b></span>
             <span class="btn" id="presentBtn">Present</span>
+            <span class="btn debug-toggle-hidden" id="debugBtn">Metrics</span>
             <span class="btn" id="chatToggle">
               <span
                 id="unread-count"
@@ -63,6 +64,11 @@
           <button onclick="sendMessage()" class="btn send-btn">Send</button>
         </div>
       </div>
+
+      <aside class="debug-panel" id="debugPanel" hidden>
+        <h3>Performance Metrics</h3>
+        <div class="debug-summary" id="debugSummary"></div>
+      </aside>
     </div>
 
     <script src="index.js"></script>

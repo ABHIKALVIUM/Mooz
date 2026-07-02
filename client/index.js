@@ -130,6 +130,19 @@ const websocket = new WebSocket(ws);
 const role = localStorage.getItem('role');
 const userId = localStorage.getItem('user');
 const userName = localStorage.getItem('name') || 'Anonymous';
+const roomFromQuery = new URLSearchParams(window.location.search).get('room');
+const roomId = (roomFromQuery || localStorage.getItem('roomId') || '')
+  .trim()
+  .toLowerCase();
+
+if (!roomId) {
+  window.location.href = './connect.html';
+  throw new Error('Missing room id');
+}
+
+localStorage.setItem('roomId', roomId);
+const debugEnabled = sessionStorage.getItem('meetingDebugEnabled') === 'true';
+let metricsPanelOpen = sessionStorage.getItem('meetingMetricsOpen') === 'true';
 
 const peerConnections = new Map();
 const remoteStreams = new Map();
@@ -137,6 +150,7 @@ const presentationStreams = new Map();
 const presentationSenders = new Map();
 const peerPrimaryStreamIds = new Map();
 const peerNames = new Map();
+const peerMetricSnapshots = new Map();
 
 let localStream = null;
 let audioEnabled = true;
@@ -147,6 +161,7 @@ let activePresenterId = null;
 let activePresenterName = '';
 
 let unreadCount = 0;
+let metricsTimer = null;
 
 const MIN_GRID_TILE_WIDTH = 220;
 const MIN_GRID_TILE_HEIGHT = 124;
@@ -187,6 +202,186 @@ function avatarColor(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function formatNumber(value, digits = 1) {
+  if (!Number.isFinite(value)) return '0';
+  return value.toFixed(digits);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function setDebugPanelVisibility(visible) {
+  const panel = document.getElementById('debugPanel');
+  if (!panel) return;
+
+  panel.hidden = !visible;
+  metricsPanelOpen = visible;
+  sessionStorage.setItem('meetingMetricsOpen', String(visible));
+  const button = document.getElementById('debugBtn');
+  if (button) {
+    button.innerHTML = visible ? 'Metrics <b>On</b>' : 'Metrics <b>Off</b>';
+  }
+}
+
+function setDebugButtonVisibility(visible) {
+  const button = document.getElementById('debugBtn');
+  if (!button) return;
+  button.classList.toggle('debug-toggle-hidden', !visible);
+}
+
+function renderDebugSummary(rows) {
+  const summary = document.getElementById('debugSummary');
+  if (!summary) return;
+
+  if (!rows.length) {
+    summary.innerHTML =
+      '<div class="debug-peer">No live stats yet. Wait for peer connections.</div>';
+    return;
+  }
+
+  summary.innerHTML = rows
+    .map(
+      (row) => `
+        <div class="debug-peer">
+          <b>${escapeHtml(row.label)}</b>
+          <div>Bitrate: ${formatNumber(row.bitrate, 0)} kbps</div>
+          <div>FPS: ${formatNumber(row.fps, 1)}</div>
+          <div>RTT: ${formatNumber(row.rtt, 0)} ms</div>
+          <div>Packet loss: ${formatNumber(row.packetLoss, 1)}%</div>
+        </div>
+      `
+    )
+    .join('');
+}
+
+async function collectPeerMetrics(peerId, peer) {
+  const report = await peer.getStats();
+  let outboundVideo = null;
+  let remoteInboundVideo = null;
+  let selectedPair = null;
+
+  report.forEach((entry) => {
+    if (
+      entry.type === 'outbound-rtp' &&
+      entry.kind === 'video' &&
+      !entry.isRemote
+    ) {
+      outboundVideo = entry;
+    }
+
+    if (entry.type === 'remote-inbound-rtp' && entry.kind === 'video') {
+      remoteInboundVideo = entry;
+    }
+
+    if (entry.type === 'transport' && entry.selectedCandidatePairId) {
+      selectedPair = report.get(entry.selectedCandidatePairId) || selectedPair;
+    }
+
+    if (
+      entry.type === 'candidate-pair' &&
+      entry.state === 'succeeded' &&
+      entry.nominated &&
+      !selectedPair
+    ) {
+      selectedPair = entry;
+    }
+  });
+
+  const previous = peerMetricSnapshots.get(peerId) || {};
+  let bitrate = 0;
+  let fps = 0;
+
+  if (outboundVideo) {
+    const timeDelta = previous.timestamp
+      ? (outboundVideo.timestamp - previous.timestamp) / 1000
+      : 0;
+    const bytesDelta =
+      previous.bytesSent != null
+        ? outboundVideo.bytesSent - previous.bytesSent
+        : 0;
+    bitrate = timeDelta > 0 ? (bytesDelta * 8) / timeDelta / 1000 : 0;
+
+    fps = outboundVideo.framesPerSecond || 0;
+    if (!fps && previous.framesEncoded != null && timeDelta > 0) {
+      fps = (outboundVideo.framesEncoded - previous.framesEncoded) / timeDelta;
+    }
+
+    peerMetricSnapshots.set(peerId, {
+      bytesSent: outboundVideo.bytesSent,
+      timestamp: outboundVideo.timestamp,
+      framesEncoded: outboundVideo.framesEncoded,
+    });
+  }
+
+  const rttSeconds =
+    selectedPair?.currentRoundTripTime ||
+    remoteInboundVideo?.roundTripTime ||
+    0;
+  const packetLoss = remoteInboundVideo
+    ? (() => {
+        const lost = remoteInboundVideo.packetsLost || 0;
+        const received = remoteInboundVideo.packetsReceived || 0;
+        const total = lost + received;
+        if (total > 0) return (lost / total) * 100;
+        if (typeof remoteInboundVideo.fractionLost === 'number') {
+          return remoteInboundVideo.fractionLost * 100;
+        }
+        return 0;
+      })()
+    : 0;
+
+  return {
+    label: peerNames.get(peerId) || peerId.slice(0, 6),
+    bitrate,
+    fps,
+    rtt: rttSeconds * 1000,
+    packetLoss,
+  };
+}
+
+async function refreshDebugMetrics() {
+  if (!debugEnabled) return;
+
+  const rows = [];
+  for (const [peerId, peer] of peerConnections) {
+    if (!peer || peer.connectionState === 'closed') continue;
+    try {
+      rows.push(await collectPeerMetrics(peerId, peer));
+    } catch (error) {
+      console.error('debug metrics error:', error);
+    }
+  }
+
+  renderDebugSummary(rows);
+}
+
+function startDebugMetrics() {
+  if (!debugEnabled || metricsTimer) return;
+  metricsTimer = setInterval(() => {
+    refreshDebugMetrics().catch(console.error);
+  }, 1000);
+  refreshDebugMetrics().catch(console.error);
+}
+
+function stopDebugMetrics() {
+  if (!metricsTimer) return;
+  clearInterval(metricsTimer);
+  metricsTimer = null;
+}
+
+function updateRoomBadge() {
+  const badge = document.getElementById('roomBadge');
+  if (badge) {
+    badge.textContent = `Room ${roomId || 'lobby'}`;
+  }
 }
 
 function layoutTiles() {
@@ -749,6 +944,7 @@ function addVideoElement(peerId, stream, label) {
   const wrapper = document.createElement('div');
   wrapper.id = `wrapper-${peerId}`;
   wrapper.className = 'video-wrapper';
+  wrapper.classList.add('cam-off');
 
   const video = document.createElement('video');
   video.id = `video-${peerId}`;
@@ -851,6 +1047,13 @@ function createPeerConnection(peerId, initiator) {
       return;
     }
 
+    if (event.track.kind === 'video') {
+      setTileCamState(peerId, true);
+      event.track.onmute = () => setTileCamState(peerId, false);
+      event.track.onunmute = () => setTileCamState(peerId, true);
+      event.track.onended = () => setTileCamState(peerId, false);
+    }
+
     let stream = remoteStreams.get(peerId);
     if (!stream) {
       stream = new MediaStream();
@@ -924,7 +1127,13 @@ function createPeerConnection(peerId, initiator) {
 
 websocket.addEventListener('open', () => {
   websocket.send(
-    JSON.stringify({ type: 'register', role, id: userId, name: userName })
+    JSON.stringify({
+      type: 'register',
+      role,
+      id: userId,
+      name: userName,
+      room: roomId,
+    })
   );
 });
 
@@ -941,6 +1150,7 @@ websocket.addEventListener('message', async (e) => {
       createPeerConnection(peer.id, true);
     }
     layoutTiles();
+    if (debugEnabled) refreshDebugMetrics().catch(console.error);
   }
   //listen for when a peer joins
   if (data.type === 'peer_joined') {
@@ -1006,6 +1216,7 @@ websocket.addEventListener('message', async (e) => {
     peerNames.delete(data.peerId);
     removeVideoElement(data.peerId);
     updateVideoBitrate().catch(console.error);
+    if (debugEnabled) refreshDebugMetrics().catch(console.error);
   }
 
   if (data.type === 'mesg') {
@@ -1072,6 +1283,10 @@ async function setup() {
     audio: true,
   });
 
+  updateRoomBadge();
+  setDebugButtonVisibility(debugEnabled);
+  setDebugPanelVisibility(debugEnabled && metricsPanelOpen);
+
   const localVideo = document.getElementById('localVideo');
   if (localVideo) {
     localVideo.srcObject = localStream;
@@ -1086,8 +1301,17 @@ async function setup() {
   layoutTiles();
 
   websocket.send(
-    JSON.stringify({ type: 'client_ready', id: userId, name: userName })
+    JSON.stringify({
+      type: 'client_ready',
+      id: userId,
+      name: userName,
+      room: roomId,
+    })
   );
+
+  if (debugEnabled) {
+    startDebugMetrics();
+  }
 }
 
 websocket.addEventListener('open', () => setTimeout(setup, 100));
@@ -1137,6 +1361,14 @@ document.getElementById('chatToggle')?.addEventListener('click', () => {
   updateUnreadCount();
 });
 
+document.getElementById('debugBtn')?.addEventListener('click', () => {
+  if (!debugEnabled) return;
+  setDebugPanelVisibility(!metricsPanelOpen);
+  if (metricsPanelOpen) {
+    refreshDebugMetrics().catch(console.error);
+  }
+});
+
 document.getElementById('chatClose')?.addEventListener('click', () => {
   document.querySelector('.main-container').classList.remove('chat-open');
   unreadCount = 0;
@@ -1145,6 +1377,7 @@ document.getElementById('chatClose')?.addEventListener('click', () => {
 
 document.getElementById('leaveBtn')?.addEventListener('click', () => {
   localStream?.getTracks().forEach((t) => t.stop());
+  stopDebugMetrics();
   websocket.close();
   window.location.href = './connect.html';
 });

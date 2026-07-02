@@ -7,13 +7,34 @@ const server = http.createServer(app);
 
 require('express-ws')(app, server);
 
-let users = new Map(); // userId -> ws
-let admin = null;
-let activePresenter = null;
+const rooms = new Map();
 
-function broadcast(payload, exceptId = null) {
+function getRoom(roomId) {
+  const normalizedRoomId = roomId || 'lobby';
+  let room = rooms.get(normalizedRoomId);
+
+  if (!room) {
+    room = {
+      users: new Map(),
+      admin: null,
+      activePresenter: null,
+    };
+    rooms.set(normalizedRoomId, room);
+  }
+
+  return room;
+}
+
+function removeRoomIfEmpty(roomId) {
+  const room = rooms.get(roomId);
+  if (room && room.users.size === 0) {
+    rooms.delete(roomId);
+  }
+}
+
+function broadcast(room, payload, exceptId = null) {
   const message = JSON.stringify(payload);
-  for (const [id, user] of users) {
+  for (const [id, user] of room.users) {
     if (exceptId && id === exceptId) continue;
     user.send(message);
   }
@@ -30,6 +51,7 @@ app.get('/', function (req, res) {
 
 app.ws('/ws', function (ws, req) {
   ws.id = randomUUID();
+  ws.roomId = 'lobby';
 
   ws.on('message', (msg) => {
     let data;
@@ -42,51 +64,53 @@ app.ws('/ws', function (ws, req) {
 
     console.log('msg:', data.type, 'from:', ws.id);
 
-    // register
     if (data.type === 'register') {
       ws.id = data.id;
       ws.role = data.role;
       ws.name = data.name || 'User';
-      users.set(ws.id, ws);
+      ws.roomId = data.room || ws.roomId || 'lobby';
+
+      const room = getRoom(ws.roomId);
+      room.users.set(ws.id, ws);
 
       if (ws.role === 'admin') {
-        admin = ws.id;
-        console.log('registered admin:', ws.id);
+        room.admin = ws.id;
+        console.log('registered admin:', ws.id, 'room:', ws.roomId);
       } else {
         console.log(
           'registered client:',
           ws.id,
           ws.name,
+          'room:',
+          ws.roomId,
           '| total users:',
-          users.size
+          room.users.size
         );
       }
       return;
     }
 
-    // client ready: send new client the room state, tell everyone else they joined
+    const room = getRoom(ws.roomId);
+
     if (data.type === 'client_ready') {
       ws.name = data.name || ws.name || 'User';
 
-      // Build list of everyone already in the room (excluding this new client)
       const existingPeers = [];
-      for (const [id, user] of users) {
+      for (const [id, user] of room.users) {
         if (id !== ws.id) {
           existingPeers.push({ id, name: user.name, role: user.role });
         }
       }
 
-      // Tell the new client who is already here so it can initiate peer connections
       ws.send(
         JSON.stringify({
           type: 'room_state',
           peers: existingPeers,
-          presenter: activePresenter,
+          presenter: room.activePresenter,
         })
       );
 
-      // Tell everyone else a new peer joined
-      for (const [id, user] of users) {
+      for (const [id, user] of room.users) {
         if (id !== ws.id) {
           user.send(
             JSON.stringify({
@@ -103,6 +127,8 @@ app.ws('/ws', function (ws, req) {
         'client_ready:',
         ws.id,
         ws.name,
+        'room:',
+        ws.roomId,
         '| notified',
         existingPeers.length,
         'peers'
@@ -111,7 +137,7 @@ app.ws('/ws', function (ws, req) {
     }
 
     if (data.type === 'present_request') {
-      if (activePresenter && activePresenter.id !== ws.id) {
+      if (room.activePresenter && room.activePresenter.id !== ws.id) {
         ws.send(
           JSON.stringify({
             type: 'present_denied',
@@ -122,7 +148,7 @@ app.ws('/ws', function (ws, req) {
         return;
       }
 
-      activePresenter = {
+      room.activePresenter = {
         id: ws.id,
         name: ws.name || data.name || 'User',
       };
@@ -135,17 +161,17 @@ app.ws('/ws', function (ws, req) {
         })
       );
 
-      broadcast({
+      broadcast(room, {
         type: 'present_state',
-        presenter: activePresenter,
+        presenter: room.activePresenter,
       });
       return;
     }
 
     if (data.type === 'present_release') {
-      if (activePresenter && activePresenter.id === ws.id) {
-        activePresenter = null;
-        broadcast({
+      if (room.activePresenter && room.activePresenter.id === ws.id) {
+        room.activePresenter = null;
+        broadcast(room, {
           type: 'present_state',
           presenter: null,
         });
@@ -153,9 +179,8 @@ app.ws('/ws', function (ws, req) {
       return;
     }
 
-    // offer: route to specific target (any peer -> any peer)
     if (data.type === 'offer') {
-      const target = users.get(data.to);
+      const target = room.users.get(data.to);
       if (target) {
         target.send(
           JSON.stringify({
@@ -165,16 +190,22 @@ app.ws('/ws', function (ws, req) {
             name: ws.name,
           })
         );
-        console.log('offer forwarded', ws.id, '->', data.to);
+        console.log(
+          'offer forwarded',
+          ws.id,
+          '->',
+          data.to,
+          'room:',
+          ws.roomId
+        );
       } else {
-        console.log('offer target not found:', data.to);
+        console.log('offer target not found:', data.to, 'room:', ws.roomId);
       }
       return;
     }
 
-    // answer: route to specific target
     if (data.type === 'answer') {
-      const target = users.get(data.to);
+      const target = room.users.get(data.to);
       if (target) {
         target.send(
           JSON.stringify({
@@ -183,15 +214,21 @@ app.ws('/ws', function (ws, req) {
             from: ws.id,
           })
         );
-        console.log('answer forwarded', ws.id, '->', data.to);
+        console.log(
+          'answer forwarded',
+          ws.id,
+          '->',
+          data.to,
+          'room:',
+          ws.roomId
+        );
       }
       return;
     }
 
-    // ice: route by real ID, resolve "admin" alias
     if (data.type === 'ice') {
-      const toId = data.to === 'admin' ? admin : data.to;
-      const target = users.get(toId);
+      const toId = data.to === 'admin' ? room.admin : data.to;
+      const target = room.users.get(toId);
       if (target) {
         target.send(
           JSON.stringify({
@@ -201,11 +238,10 @@ app.ws('/ws', function (ws, req) {
           })
         );
       }
-      console.log('ice forwarded to', toId);
+      console.log('ice forwarded to', toId, 'room:', ws.roomId);
       return;
     }
 
-    // chat: broadcast to everyone in the room
     if (data.type === 'mesg') {
       const outbound = JSON.stringify({
         type: 'mesg',
@@ -213,42 +249,53 @@ app.ws('/ws', function (ws, req) {
         name: ws.name || data.name || 'User',
         from: ws.id,
       });
-      for (const [id, user] of users) {
+      for (const [, user] of room.users) {
         user.send(outbound);
       }
-      console.log('chat broadcast from', ws.id, ws.name);
+      console.log('chat broadcast from', ws.id, ws.name, 'room:', ws.roomId);
       return;
     }
   });
 
   ws.on('close', () => {
-    if (ws.id) {
-      users.delete(ws.id);
-      console.log('disconnected:', ws.id, '| remaining:', users.size);
+    if (!ws.id) return;
 
-      if (activePresenter && activePresenter.id === ws.id) {
-        activePresenter = null;
-        broadcast({
-          type: 'present_state',
-          presenter: null,
-        });
-      }
+    const room = rooms.get(ws.roomId);
+    if (!room) return;
 
-      if (admin === ws.id) {
-        admin = null;
-        console.log('admin left');
-      }
+    room.users.delete(ws.id);
+    console.log(
+      'disconnected:',
+      ws.id,
+      '| remaining:',
+      room.users.size,
+      'room:',
+      ws.roomId
+    );
 
-      // Notify everyone that this peer left
-      for (const [id, user] of users) {
-        user.send(
-          JSON.stringify({
-            type: 'peer_left',
-            peerId: ws.id,
-          })
-        );
-      }
+    if (room.activePresenter && room.activePresenter.id === ws.id) {
+      room.activePresenter = null;
+      broadcast(room, {
+        type: 'present_state',
+        presenter: null,
+      });
     }
+
+    if (room.admin === ws.id) {
+      room.admin = null;
+      console.log('admin left room:', ws.roomId);
+    }
+
+    for (const [, user] of room.users) {
+      user.send(
+        JSON.stringify({
+          type: 'peer_left',
+          peerId: ws.id,
+        })
+      );
+    }
+
+    removeRoomIfEmpty(ws.roomId);
   });
 });
 
