@@ -208,7 +208,6 @@ function getPresentationTileId() {
   if (activePresenterId && presentationStreams.has(activePresenterId)) {
     return `presentation-${activePresenterId}`;
   }
-  if (activePresenterId) return activePresenterId;
   return null;
 }
 
@@ -413,9 +412,11 @@ function layoutGrid(W, H, pad, gap) {
 }
 
 function layoutPresenting(W, H, pad, gap, presenterTileId) {
-  const screenTile = document.getElementById(`wrapper-${presenterTileId}`);
+  const screenTile =
+    document.getElementById(presenterTileId) ||
+    document.getElementById(`wrapper-${presenterTileId}`);
   const participants = getOrderedTiles().filter(
-    (t) => t.id !== `wrapper-${presenterTileId}`
+    (t) => t.id !== presenterTileId && t.id !== `wrapper-${presenterTileId}`
   );
   const pCount = participants.length;
 
@@ -584,8 +585,29 @@ function attachPresentationTrack(peerId, peer) {
   const screenTrack = screenStream.getVideoTracks()[0];
   if (!screenTrack) return;
 
+  if (presentationSenders.has(peerId)) return;
+
   const sender = peer.addTrack(screenTrack, screenStream);
   presentationSenders.set(peerId, sender);
+}
+
+async function renegotiatePeerConnection(peerId) {
+  const peer = peerConnections.get(peerId);
+  if (!peer || peer.connectionState === 'closed') return;
+
+  try {
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+    websocket.send(
+      JSON.stringify({
+        type: 'offer',
+        offer: peer.localDescription,
+        to: peerId,
+      })
+    );
+  } catch (err) {
+    console.error('renegotiate error:', err);
+  }
 }
 
 function removePresentationTrack(peerId) {
@@ -1070,6 +1092,7 @@ document.getElementById('presentBtn')?.addEventListener('click', async () => {
 
     for (const [peerId, peer] of peerConnections) {
       attachPresentationTrack(peerId, peer);
+      renegotiatePeerConnection(peerId);
     }
 
     document.getElementById('presentBtn').innerHTML = 'Stop';
@@ -1125,6 +1148,7 @@ function stopPresenting() {
 
   for (const peerId of Array.from(presentationSenders.keys())) {
     removePresentationTrack(peerId);
+    renegotiatePeerConnection(peerId);
   }
 
   screenStream.getTracks().forEach((t) => t.stop());

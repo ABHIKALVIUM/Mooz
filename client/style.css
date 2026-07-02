@@ -72,7 +72,7 @@ body {
   position: absolute;
   border-radius: 10px;
   overflow: hidden;
-  background: transparent;
+  background: black;
   transition: all 0.2s ease;
 }
 
@@ -80,7 +80,7 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background: transparent;
+  background: black;
   display: block;
 }
 
