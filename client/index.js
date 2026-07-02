@@ -153,6 +153,9 @@ const MIN_GRID_TILE_HEIGHT = 124;
 const MIN_STRIP_TILE_WIDTH = 180;
 const MIN_STRIP_TILE_HEIGHT = 100;
 
+const tileViewportState = new WeakMap();
+let tileViewportObserver = null;
+
 //Interactive connectivity establishment config setup
 //Stun and Turn fallback servers
 const ICE_CONFIG = {
@@ -672,6 +675,67 @@ function syncTileAspectFromVideo(wrapper, video) {
   }
 }
 
+function getTileVideoElement(wrapper) {
+  return wrapper ? wrapper.querySelector('video') : null;
+}
+
+function ensureTileViewportObserver() {
+  if (tileViewportObserver || !('IntersectionObserver' in window)) return;
+
+  const gridArea = document.getElementById('gridArea');
+  if (!gridArea) return;
+
+  tileViewportObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        const wrapper = entry.target;
+        const video = getTileVideoElement(wrapper);
+        if (!video) return;
+
+        const state = tileViewportState.get(wrapper) || {};
+
+        if (entry.isIntersecting) {
+          if (state.detachedStream && !video.srcObject) {
+            video.srcObject = state.detachedStream;
+            video.play().catch(console.error);
+          }
+
+          tileViewportState.set(wrapper, {
+            detachedStream: null,
+            visible: true,
+          });
+          return;
+        }
+
+        if (video.srcObject) {
+          tileViewportState.set(wrapper, {
+            detachedStream: video.srcObject,
+            visible: false,
+          });
+          video.pause();
+          video.srcObject = null;
+        } else {
+          tileViewportState.set(wrapper, {
+            detachedStream: state.detachedStream || null,
+            visible: false,
+          });
+        }
+      });
+    },
+    {
+      root: gridArea,
+      threshold: 0.15,
+    }
+  );
+}
+
+function observeTileViewport(wrapper) {
+  if (!wrapper || !('IntersectionObserver' in window)) return;
+
+  ensureTileViewportObserver();
+  if (tileViewportObserver) tileViewportObserver.observe(wrapper);
+}
+
 // Rerun layout on resize
 const ro = new ResizeObserver(() => layoutTiles());
 ro.observe(document.getElementById('gridArea'));
@@ -714,6 +778,7 @@ function addVideoElement(peerId, stream, label) {
   area.appendChild(wrapper);
 
   syncTileAspectFromVideo(wrapper, video);
+  observeTileViewport(wrapper);
 
   video.play().catch(console.error);
   layoutTiles();
@@ -1134,6 +1199,7 @@ document.getElementById('presentBtn')?.addEventListener('click', async () => {
     area.insertBefore(wrapper, area.firstChild); // screen first so layout puts it left/top
     syncTileAspectFromVideo(wrapper, vid);
     vid.play().catch(console.error);
+    observeTileViewport(wrapper);
 
     for (const [peerId, peer] of peerConnections) {
       attachPresentationTrack(peerId, peer);
