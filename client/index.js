@@ -162,6 +162,7 @@ let activePresenterName = '';
 
 let unreadCount = 0;
 let metricsTimer = null;
+let roomMemberCount = 1;
 
 const MIN_GRID_TILE_WIDTH = 220;
 const MIN_GRID_TILE_HEIGHT = 124;
@@ -247,19 +248,27 @@ function renderDebugSummary(rows) {
     return;
   }
 
-  summary.innerHTML = rows
-    .map(
-      (row) => `
-        <div class="debug-peer">
-          <b>${escapeHtml(row.label)}</b>
-          <div>Bitrate: ${formatNumber(row.bitrate, 0)} kbps</div>
-          <div>FPS: ${formatNumber(row.fps, 1)}</div>
-          <div>RTT: ${formatNumber(row.rtt, 0)} ms</div>
-          <div>Packet loss: ${formatNumber(row.packetLoss, 1)}%</div>
-        </div>
-      `
-    )
-    .join('');
+  const averages = rows.reduce(
+    (accumulator, row) => {
+      accumulator.bitrate += row.bitrate || 0;
+      accumulator.fps += row.fps || 0;
+      accumulator.rtt += row.rtt || 0;
+      accumulator.packetLoss += row.packetLoss || 0;
+      return accumulator;
+    },
+    { bitrate: 0, fps: 0, rtt: 0, packetLoss: 0 }
+  );
+
+  const count = rows.length;
+  summary.innerHTML = `
+    <div class="debug-peer">
+      <b>Average across ${count} peer${count !== 1 ? 's' : ''}</b>
+      <div>Bitrate: ${formatNumber(averages.bitrate / count, 0)} kbps</div>
+      <div>FPS: ${formatNumber(averages.fps / count, 1)}</div>
+      <div>RTT: ${formatNumber(averages.rtt / count, 0)} ms</div>
+      <div>Packet loss: ${formatNumber(averages.packetLoss / count, 1)}%</div>
+    </div>
+  `;
 }
 
 async function collectPeerMetrics(peerId, peer) {
@@ -989,9 +998,16 @@ function removeVideoElement(peerId) {
 }
 
 function updateParticipantCount() {
-  const count = 1 + peerConnections.size;
+  const count = Math.max(1, roomMemberCount);
   document.getElementById('participantCount').textContent =
     `${count} Participant${count !== 1 ? 's' : ''}`;
+}
+
+function updateRoomMemberCount(count) {
+  if (Number.isFinite(count) && count > 0) {
+    roomMemberCount = count;
+  }
+  updateParticipantCount();
 }
 
 function setTileCamState(peerId, on) {
@@ -1141,6 +1157,7 @@ websocket.addEventListener('message', async (e) => {
   const data = JSON.parse(e.data);
 
   if (data.type === 'room_state') {
+    updateRoomMemberCount(data.memberCount || data.peers.length + 1);
     if (data.presenter) {
       activePresenterId = data.presenter.id || null;
       activePresenterName = data.presenter.name || '';
@@ -1154,6 +1171,7 @@ websocket.addEventListener('message', async (e) => {
   }
   //listen for when a peer joins
   if (data.type === 'peer_joined') {
+    updateRoomMemberCount(data.memberCount || roomMemberCount + 1);
     peerNames.set(data.peerId, data.name);
   }
 
@@ -1207,6 +1225,7 @@ websocket.addEventListener('message', async (e) => {
   }
 
   if (data.type === 'peer_left') {
+    updateRoomMemberCount(data.memberCount || Math.max(1, roomMemberCount - 1));
     const peer = peerConnections.get(data.peerId);
     if (peer) {
       peer.close();
@@ -1236,7 +1255,7 @@ websocket.addEventListener('message', async (e) => {
 });
 
 async function updateVideoBitrate() {
-  let participantCount = peerConnections.size + 1;
+  let participantCount = Math.max(1, roomMemberCount);
 
   let bitrate;
 

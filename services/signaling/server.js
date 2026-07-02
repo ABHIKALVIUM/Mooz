@@ -40,6 +40,10 @@ function broadcast(room, payload, exceptId = null) {
   }
 }
 
+function roomMemberCount(room) {
+  return room ? room.users.size : 0;
+}
+
 app.use(function (req, res, next) {
   req.testing = 'testing';
   return next();
@@ -107,6 +111,7 @@ app.ws('/ws', function (ws, req) {
           type: 'room_state',
           peers: existingPeers,
           presenter: room.activePresenter,
+          memberCount: roomMemberCount(room),
         })
       );
 
@@ -118,6 +123,7 @@ app.ws('/ws', function (ws, req) {
               peerId: ws.id,
               name: ws.name,
               role: ws.role,
+              memberCount: roomMemberCount(room),
             })
           );
         }
@@ -164,6 +170,7 @@ app.ws('/ws', function (ws, req) {
       broadcast(room, {
         type: 'present_state',
         presenter: room.activePresenter,
+        memberCount: roomMemberCount(room),
       });
       return;
     }
@@ -174,6 +181,7 @@ app.ws('/ws', function (ws, req) {
         broadcast(room, {
           type: 'present_state',
           presenter: null,
+          memberCount: roomMemberCount(room),
         });
       }
       return;
@@ -278,6 +286,7 @@ app.ws('/ws', function (ws, req) {
       broadcast(room, {
         type: 'present_state',
         presenter: null,
+        memberCount: roomMemberCount(room),
       });
     }
 
@@ -291,6 +300,7 @@ app.ws('/ws', function (ws, req) {
         JSON.stringify({
           type: 'peer_left',
           peerId: ws.id,
+          memberCount: roomMemberCount(room),
         })
       );
     }
