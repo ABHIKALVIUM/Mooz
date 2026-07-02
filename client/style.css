@@ -1,4 +1,6 @@
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -11,7 +13,8 @@
   --gap: 6px;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   /* background: #0a0a0a; */
   color: #fff;
@@ -29,9 +32,17 @@ html, body {
   flex-shrink: 0;
 }
 
-.top-bar h1 { font-size: 18px; font-weight: 700; }
-.logo-m { color: #4f8ef7; }
-.participants { font-size: 13px; color: #888; }
+.top-bar h1 {
+  font-size: 18px;
+  font-weight: 700;
+}
+.logo-m {
+  color: #4f8ef7;
+}
+.participants {
+  font-size: 13px;
+  color: #888;
+}
 
 .main-container {
   display: flex;
@@ -61,7 +72,7 @@ html, body {
   position: absolute;
   border-radius: 10px;
   overflow: hidden;
-  background: #1a1a1a;
+  background: transparent;
   transition: all 0.2s ease;
 }
 
@@ -69,7 +80,46 @@ html, body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  background: transparent;
   display: block;
+}
+
+.video-wrapper.presentation {
+  z-index: 2;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  overflow: visible;
+}
+
+.video-wrapper.presentation video {
+  object-fit: cover;
+}
+
+.video-wrapper.presentation .video-label {
+  background: rgba(79, 142, 247, 0.7);
+}
+
+.overflow-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  background: linear-gradient(135deg, #1d2430, #0f1319);
+  border: 1px solid #2c3949;
+}
+
+.overflow-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.overflow-subtitle {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #a8b3c1;
 }
 
 .cam-off-placeholder {
@@ -85,8 +135,12 @@ html, body {
   color: #fff;
 }
 
-.video-wrapper.cam-off video { display: none; }
-.video-wrapper.cam-off .cam-off-placeholder { display: flex; }
+.video-wrapper.cam-off video {
+  display: none;
+}
+.video-wrapper.cam-off .cam-off-placeholder {
+  display: flex;
+}
 
 .cam-avatar {
   width: 52px;
@@ -106,7 +160,7 @@ html, body {
   left: 10px;
   font-size: 12px;
   color: #fff;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0, 0, 0, 0.55);
   padding: 2px 8px;
   border-radius: 4px;
   pointer-events: none;
@@ -130,7 +184,9 @@ html, body {
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
-.left-controls::-webkit-scrollbar { display: none; }
+.left-controls::-webkit-scrollbar {
+  display: none;
+}
 
 .btn {
   padding: 8px 14px;
@@ -145,11 +201,21 @@ html, body {
   border: none;
   font-family: inherit;
 }
-.btn:hover { background: #3a3a3a; }
-.btn.presenting-active { background: #f7934f; }
+.btn:hover {
+  background: #3a3a3a;
+}
+.btn.presenting-active {
+  background: #f7934f;
+}
 
-.leave { background: #c0392b; margin-left: 8px; flex-shrink: 0; }
-.leave:hover { background: #a93226; }
+.leave {
+  background: #c0392b;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+.leave:hover {
+  background: #a93226;
+}
 
 /* CHAT */
 .chat-container {
@@ -160,7 +226,9 @@ html, body {
   background: #111;
   border-left: 1px solid #222;
 }
-.main-container.chat-open .chat-container { display: flex; }
+.main-container.chat-open .chat-container {
+  display: flex;
+}
 
 .chat-header {
   padding: 14px 16px;
@@ -171,8 +239,14 @@ html, body {
   align-items: center;
   flex-shrink: 0;
 }
-.chat-close { cursor: pointer; color: #888; font-size: 16px; }
-.chat-close:hover { color: #fff; }
+.chat-close {
+  cursor: pointer;
+  color: #888;
+  font-size: 16px;
+}
+.chat-close:hover {
+  color: #fff;
+}
 
 .chat-messages {
   flex: 1;
@@ -185,7 +259,12 @@ html, body {
   line-height: 1.5;
   min-height: 0;
 }
-.chat-messages div b { color: #4f8ef7; display: block; font-size: 12px; margin-bottom: 2px; }
+.chat-messages div b {
+  color: #4f8ef7;
+  display: block;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
 
 .chat-input {
   display: flex;
@@ -205,12 +284,18 @@ html, body {
   font-family: inherit;
   outline: none;
 }
-.chat-input input:focus { border-color: #4f8ef7; }
+.chat-input input:focus {
+  border-color: #4f8ef7;
+}
 
 @media (max-width: 768px) {
-  :root { --ctrl-h: 56px; }
+  :root {
+    --ctrl-h: 56px;
+  }
 
-  .main-container { position: relative; }
+  .main-container {
+    position: relative;
+  }
 
   .chat-container {
     position: absolute;

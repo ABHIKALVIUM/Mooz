@@ -9,6 +9,15 @@ require('express-ws')(app, server);
 
 let users = new Map(); // userId -> ws
 let admin = null;
+let activePresenter = null;
+
+function broadcast(payload, exceptId = null) {
+  const message = JSON.stringify(payload);
+  for (const [id, user] of users) {
+    if (exceptId && id === exceptId) continue;
+    user.send(message);
+  }
+}
 
 app.use(function (req, res, next) {
   req.testing = 'testing';
@@ -72,6 +81,7 @@ app.ws('/ws', function (ws, req) {
         JSON.stringify({
           type: 'room_state',
           peers: existingPeers,
+          presenter: activePresenter,
         })
       );
 
@@ -97,6 +107,49 @@ app.ws('/ws', function (ws, req) {
         existingPeers.length,
         'peers'
       );
+      return;
+    }
+
+    if (data.type === 'present_request') {
+      if (activePresenter && activePresenter.id !== ws.id) {
+        ws.send(
+          JSON.stringify({
+            type: 'present_denied',
+            replyTo: data.token,
+            message: 'someone is already presenting',
+          })
+        );
+        return;
+      }
+
+      activePresenter = {
+        id: ws.id,
+        name: ws.name || data.name || 'User',
+      };
+
+      ws.send(
+        JSON.stringify({
+          type: 'present_ack',
+          replyTo: data.token,
+          ok: true,
+        })
+      );
+
+      broadcast({
+        type: 'present_state',
+        presenter: activePresenter,
+      });
+      return;
+    }
+
+    if (data.type === 'present_release') {
+      if (activePresenter && activePresenter.id === ws.id) {
+        activePresenter = null;
+        broadcast({
+          type: 'present_state',
+          presenter: null,
+        });
+      }
       return;
     }
 
@@ -172,6 +225,14 @@ app.ws('/ws', function (ws, req) {
     if (ws.id) {
       users.delete(ws.id);
       console.log('disconnected:', ws.id, '| remaining:', users.size);
+
+      if (activePresenter && activePresenter.id === ws.id) {
+        activePresenter = null;
+        broadcast({
+          type: 'present_state',
+          presenter: null,
+        });
+      }
 
       if (admin === ws.id) {
         admin = null;

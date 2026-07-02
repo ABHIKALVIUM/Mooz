@@ -133,6 +133,9 @@ const userName = localStorage.getItem('name') || 'Anonymous';
 
 const peerConnections = new Map();
 const remoteStreams = new Map();
+const presentationStreams = new Map();
+const presentationSenders = new Map();
+const peerPrimaryStreamIds = new Map();
 const peerNames = new Map();
 
 let localStream = null;
@@ -140,8 +143,15 @@ let audioEnabled = true;
 let videoEnabled = true;
 let screenStream = null;
 let screenPeerId = null;
+let activePresenterId = null;
+let activePresenterName = '';
 
 let unreadCount = 0;
+
+const MIN_GRID_TILE_WIDTH = 220;
+const MIN_GRID_TILE_HEIGHT = 124;
+const MIN_STRIP_TILE_WIDTH = 180;
+const MIN_STRIP_TILE_HEIGHT = 100;
 
 //Interactive connectivity establishment config setup
 //Stun and Turn fallback servers
@@ -182,12 +192,136 @@ function layoutTiles() {
   const pad = gap;
   const W = area.clientWidth - pad * 2;
   const H = area.clientHeight - pad * 2;
+  const presenterTileId = getPresentationTileId();
 
-  if (screenStream && screenPeerId) {
-    layoutPresenting(W, H, pad, gap);
+  setPresentationTileState(presenterTileId);
+
+  if (presenterTileId) {
+    layoutPresenting(W, H, pad, gap, presenterTileId);
   } else {
     layoutGrid(W, H, pad, gap);
   }
+}
+
+function getPresentationTileId() {
+  if (screenStream && screenPeerId) return screenPeerId;
+  if (activePresenterId && presentationStreams.has(activePresenterId)) {
+    return `presentation-${activePresenterId}`;
+  }
+  if (activePresenterId) return activePresenterId;
+  return null;
+}
+
+function fitWithinBox(boxW, boxH, aspectRatio) {
+  if (!aspectRatio || !isFinite(aspectRatio) || aspectRatio <= 0) {
+    return { width: boxW, height: boxH, offsetX: 0, offsetY: 0 };
+  }
+
+  let width = boxW;
+  let height = width / aspectRatio;
+
+  if (height > boxH) {
+    height = boxH;
+    width = height * aspectRatio;
+  }
+
+  return {
+    width,
+    height,
+    offsetX: (boxW - width) / 2,
+    offsetY: (boxH - height) / 2,
+  };
+}
+
+function getTileAspectRatio(tile) {
+  const video = tile?.querySelector('video');
+  const aspectRatio = Number(tile?.dataset.aspectRatio);
+  if (aspectRatio > 0) return aspectRatio;
+  if (video?.videoWidth && video?.videoHeight) {
+    return video.videoWidth / video.videoHeight;
+  }
+  return 16 / 9;
+}
+
+function applyTileBox(tile, x, y, boxW, boxH) {
+  const { width, height, offsetX, offsetY } = fitWithinBox(
+    boxW,
+    boxH,
+    getTileAspectRatio(tile)
+  );
+
+  tile.style.left = x + offsetX + 'px';
+  tile.style.top = y + offsetY + 'px';
+  tile.style.width = width + 'px';
+  tile.style.height = height + 'px';
+  tile.style.display = 'block';
+}
+
+function getTilePeerId(tile) {
+  if (!tile || !tile.id) return '';
+  if (tile.id === 'overflowTile') return 'overflow';
+  return tile.id.replace(/^wrapper-/, '');
+}
+
+function setPresentationTileState(presenterTileId) {
+  document
+    .querySelectorAll('.video-wrapper.presentation')
+    .forEach((tile) => tile.classList.remove('presentation'));
+
+  if (!presenterTileId) return;
+
+  const tile =
+    document.getElementById(presenterTileId) ||
+    document.getElementById(`wrapper-${presenterTileId}`);
+  if (tile) tile.classList.add('presentation');
+}
+
+function isActivePresenterTile(tile) {
+  const presenterTileId = getPresentationTileId();
+  if (!presenterTileId) return false;
+  const peerId = getTilePeerId(tile);
+  return peerId === presenterTileId;
+}
+
+function getOverflowTile() {
+  const area = document.getElementById('gridArea');
+  let tile = document.getElementById('overflowTile');
+
+  if (!tile) {
+    tile = document.createElement('div');
+    tile.id = 'overflowTile';
+    tile.className = 'video-wrapper overflow-tile';
+    tile.setAttribute('data-overflow', 'true');
+
+    const title = document.createElement('div');
+    title.className = 'overflow-title';
+    title.textContent = '+0 more';
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'overflow-subtitle';
+    subtitle.textContent = 'Other participants are hidden';
+
+    tile.appendChild(title);
+    tile.appendChild(subtitle);
+    area.appendChild(tile);
+  }
+
+  return tile;
+}
+
+function hideOverflowTile() {
+  const tile = document.getElementById('overflowTile');
+  if (tile) tile.style.display = 'none';
+}
+
+function showOverflowTile(hiddenCount, totalCount) {
+  const tile = getOverflowTile();
+  const title = tile.querySelector('.overflow-title');
+  const subtitle = tile.querySelector('.overflow-subtitle');
+
+  title.textContent = `+${hiddenCount} more`;
+  subtitle.textContent = `${totalCount} total participants`;
+  tile.style.display = 'flex';
 }
 
 function bestGrid(count, W, H) {
@@ -213,34 +347,75 @@ function bestGrid(count, W, H) {
   return best;
 }
 
+function measureGrid(count, W, H, gap) {
+  const { cols, rows } = bestFit(count, W, H, gap);
+  return {
+    cols,
+    rows,
+    tileW: (W - (cols - 1) * gap) / cols,
+    tileH: (H - (rows - 1) * gap) / rows,
+  };
+}
+
+function getMaxGridTiles(W, H, gap, totalCount) {
+  let capacity = 1;
+
+  for (let visibleCount = 1; visibleCount <= totalCount; visibleCount++) {
+    const { tileW, tileH } = measureGrid(visibleCount, W, H, gap);
+    if (tileW >= MIN_GRID_TILE_WIDTH && tileH >= MIN_GRID_TILE_HEIGHT) {
+      capacity = visibleCount;
+    }
+  }
+
+  return totalCount > 1 ? Math.max(2, capacity) : 1;
+}
+
 function layoutGrid(W, H, pad, gap) {
   const tiles = getOrderedTiles();
   const count = tiles.length;
   if (!count) return;
 
-  const { cols, rows } = bestFit(count, W, H, gap);
+  hideOverflowTile();
+
+  const capacity = getMaxGridTiles(W, H, gap, count);
+  const needsOverflow = count > capacity;
+  const visibleTiles = tiles.slice(0, needsOverflow ? capacity - 1 : capacity);
+  const tilesToLayout = needsOverflow
+    ? [...visibleTiles, getOverflowTile()]
+    : visibleTiles;
+  const renderCount = tilesToLayout.length;
+
+  if (needsOverflow) {
+    showOverflowTile(count - visibleTiles.length, count);
+  }
+
+  const { cols, rows } = bestFit(renderCount, W, H, gap);
   const tileW = (W - (cols - 1) * gap) / cols;
   const tileH = (H - (rows - 1) * gap) / rows;
 
-  tiles.forEach((tile, i) => {
+  tilesToLayout.forEach((tile, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
     // Center the last incomplete row
-    const rowCount = Math.ceil(count / cols);
-    const tilesInThisRow = row === rowCount - 1 ? count - row * cols : cols;
+    const rowCount = Math.ceil(renderCount / cols);
+    const tilesInThisRow =
+      row === rowCount - 1 ? renderCount - row * cols : cols;
     const rowOffsetX = ((cols - tilesInThisRow) * (tileW + gap)) / 2;
 
-    tile.style.left = pad + col * (tileW + gap) + rowOffsetX + 'px';
-    tile.style.top = pad + row * (tileH + gap) + 'px';
-    tile.style.width = tileW + 'px';
-    tile.style.height = tileH + 'px';
+    const x = pad + col * (tileW + gap) + rowOffsetX;
+    const y = pad + row * (tileH + gap);
+    applyTileBox(tile, x, y, tileW, tileH);
+  });
+
+  tiles.slice(visibleTiles.length).forEach((tile) => {
+    tile.style.display = 'none';
   });
 }
 
-function layoutPresenting(W, H, pad, gap) {
-  const screenTile = document.getElementById(`wrapper-${screenPeerId}`);
+function layoutPresenting(W, H, pad, gap, presenterTileId) {
+  const screenTile = document.getElementById(`wrapper-${presenterTileId}`);
   const participants = getOrderedTiles().filter(
-    (t) => t.id !== `wrapper-${screenPeerId}`
+    (t) => t.id !== `wrapper-${presenterTileId}`
   );
   const pCount = participants.length;
 
@@ -248,10 +423,7 @@ function layoutPresenting(W, H, pad, gap) {
 
   if (pCount === 0) {
     // Full screen
-    screenTile.style.left = pad + 'px';
-    screenTile.style.top = pad + 'px';
-    screenTile.style.width = W + 'px';
-    screenTile.style.height = H + 'px';
+    applyTileBox(screenTile, pad, pad, W, H);
     return;
   }
 
@@ -261,37 +433,73 @@ function layoutPresenting(W, H, pad, gap) {
     // Top 65% screen share, bottom strip
     const stripH = Math.min(110, H * 0.3);
     const screenH = H - stripH - gap;
+    const capacity = Math.max(
+      2,
+      Math.floor((W + gap) / (MIN_STRIP_TILE_WIDTH + gap))
+    );
+    const needsOverflow = pCount > capacity;
+    const visibleParticipants = participants.slice(
+      0,
+      needsOverflow ? capacity - 1 : capacity
+    );
+    const stripTiles = needsOverflow
+      ? [...visibleParticipants, getOverflowTile()]
+      : visibleParticipants;
 
-    screenTile.style.left = pad + 'px';
-    screenTile.style.top = pad + 'px';
-    screenTile.style.width = W + 'px';
-    screenTile.style.height = screenH + 'px';
+    applyTileBox(screenTile, pad, pad, W, screenH);
 
-    const thumbW = (W - (pCount - 1) * gap) / pCount;
+    if (needsOverflow) {
+      showOverflowTile(pCount - visibleParticipants.length, pCount);
+    } else {
+      hideOverflowTile();
+    }
+
+    const thumbW = (W - (stripTiles.length - 1) * gap) / stripTiles.length;
     const thumbH = stripH;
-    participants.forEach((tile, i) => {
-      tile.style.left = pad + i * (thumbW + gap) + 'px';
-      tile.style.top = pad + screenH + gap + 'px';
-      tile.style.width = thumbW + 'px';
-      tile.style.height = thumbH + 'px';
+    stripTiles.forEach((tile, i) => {
+      const x = pad + i * (thumbW + gap);
+      const y = pad + screenH + gap;
+      applyTileBox(tile, x, y, thumbW, thumbH);
+    });
+
+    participants.slice(visibleParticipants.length).forEach((tile) => {
+      tile.style.display = 'none';
     });
   } else {
     // Left half screen share, right strip
     const stripW = Math.min(200, W * 0.25);
     const screenW = W - stripW - gap;
+    const capacity = Math.max(
+      2,
+      Math.floor((H + gap) / (MIN_STRIP_TILE_HEIGHT + gap))
+    );
+    const needsOverflow = pCount > capacity;
+    const visibleParticipants = participants.slice(
+      0,
+      needsOverflow ? capacity - 1 : capacity
+    );
+    const stripTiles = needsOverflow
+      ? [...visibleParticipants, getOverflowTile()]
+      : visibleParticipants;
 
-    screenTile.style.left = pad + 'px';
-    screenTile.style.top = pad + 'px';
-    screenTile.style.width = screenW + 'px';
-    screenTile.style.height = H + 'px';
+    applyTileBox(screenTile, pad, pad, screenW, H);
 
-    const thumbH = (H - (pCount - 1) * gap) / pCount;
+    if (needsOverflow) {
+      showOverflowTile(pCount - visibleParticipants.length, pCount);
+    } else {
+      hideOverflowTile();
+    }
+
+    const thumbH = (H - (stripTiles.length - 1) * gap) / stripTiles.length;
     const thumbW = stripW;
-    participants.forEach((tile, i) => {
-      tile.style.left = pad + screenW + gap + 'px';
-      tile.style.top = pad + i * (thumbH + gap) + 'px';
-      tile.style.width = thumbW + 'px';
-      tile.style.height = thumbH + 'px';
+    stripTiles.forEach((tile, i) => {
+      const x = pad + screenW + gap;
+      const y = pad + i * (thumbH + gap);
+      applyTileBox(tile, x, y, thumbW, thumbH);
+    });
+
+    participants.slice(visibleParticipants.length).forEach((tile) => {
+      tile.style.display = 'none';
     });
   }
 }
@@ -340,7 +548,106 @@ function bestFit(count, W, H, gap) {
 
 function getOrderedTiles() {
   const area = document.getElementById('gridArea');
-  return Array.from(area.querySelectorAll('.video-wrapper'));
+  return Array.from(
+    area.querySelectorAll('.video-wrapper:not([data-overflow="true"])')
+  ).sort((a, b) => {
+    const aActive = isActivePresenterTile(a);
+    const bActive = isActivePresenterTile(b);
+
+    if (aActive && !bActive) return -1;
+    if (!aActive && bActive) return 1;
+
+    const presenterTileId = getPresentationTileId();
+    if (presenterTileId) {
+      const aScreen =
+        a.id === presenterTileId || a.id === `wrapper-${presenterTileId}`;
+      const bScreen =
+        b.id === presenterTileId || b.id === `wrapper-${presenterTileId}`;
+      if (aScreen && !bScreen) return -1;
+      if (!aScreen && bScreen) return 1;
+    }
+
+    if (a.id === 'wrapper-local') return -1;
+    if (b.id === 'wrapper-local') return 1;
+
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function getActiveOutboundStream() {
+  return localStream;
+}
+
+function attachPresentationTrack(peerId, peer) {
+  if (!screenStream || screenPeerId !== `screen-${userId}`) return;
+
+  const screenTrack = screenStream.getVideoTracks()[0];
+  if (!screenTrack) return;
+
+  const sender = peer.addTrack(screenTrack, screenStream);
+  presentationSenders.set(peerId, sender);
+}
+
+function removePresentationTrack(peerId) {
+  const sender = presentationSenders.get(peerId);
+  if (!sender) return;
+
+  sender.replaceTrack(null).catch(() => {});
+  presentationSenders.delete(peerId);
+}
+
+function addPresentationElement(peerId, stream, label) {
+  if (document.getElementById(`presentation-${peerId}`)) return;
+
+  const area = document.getElementById('gridArea');
+  const wrapper = document.createElement('div');
+  wrapper.id = `presentation-${peerId}`;
+  wrapper.className = 'video-wrapper presentation';
+
+  const video = document.createElement('video');
+  video.id = `presentation-video-${peerId}`;
+  video.srcObject = stream;
+  video.autoplay = true;
+  video.playsInline = true;
+  video.muted = false;
+
+  const labelTag = document.createElement('span');
+  labelTag.className = 'video-label';
+  labelTag.textContent = `${label || peerId.slice(0, 6)} (presentation)`;
+
+  wrapper.appendChild(video);
+  wrapper.appendChild(labelTag);
+  area.appendChild(wrapper);
+
+  syncTileAspectFromVideo(wrapper, video);
+  video.play().catch(console.error);
+  layoutTiles();
+}
+
+function removePresentationElement(peerId) {
+  const wrapper = document.getElementById(`presentation-${peerId}`);
+  if (wrapper) wrapper.remove();
+  presentationStreams.delete(peerId);
+  peerPrimaryStreamIds.delete(peerId);
+}
+
+function syncTileAspectFromVideo(wrapper, video) {
+  if (!wrapper || !video) return;
+
+  const update = () => {
+    if (video.videoWidth && video.videoHeight) {
+      wrapper.dataset.aspectRatio = String(
+        video.videoWidth / video.videoHeight
+      );
+      layoutTiles();
+    }
+  };
+
+  if (video.readyState >= 1) {
+    update();
+  } else {
+    video.addEventListener('loadedmetadata', update, { once: true });
+  }
 }
 
 // Rerun layout on resize
@@ -384,8 +691,11 @@ function addVideoElement(peerId, stream, label) {
   wrapper.appendChild(nameTag);
   area.appendChild(wrapper);
 
+  syncTileAspectFromVideo(wrapper, video);
+
   video.play().catch(console.error);
   layoutTiles();
+  updateParticipantCount();
 }
 
 function removeVideoElement(peerId) {
@@ -396,7 +706,7 @@ function removeVideoElement(peerId) {
 }
 
 function updateParticipantCount() {
-  const count = document.querySelectorAll('.video-wrapper').length;
+  const count = 1 + peerConnections.size;
   document.getElementById('participantCount').textContent =
     `${count} Participant${count !== 1 ? 's' : ''}`;
 }
@@ -424,6 +734,36 @@ function createPeerConnection(peerId, initiator) {
   };
 
   peer.ontrack = (event) => {
+    const incomingStream = event.streams[0];
+    if (!incomingStream) return;
+
+    const primaryStreamId = peerPrimaryStreamIds.get(peerId);
+    if (!primaryStreamId) {
+      peerPrimaryStreamIds.set(peerId, incomingStream.id);
+    }
+
+    const isPresentationTrack =
+      activePresenterId === peerId &&
+      event.track.kind === 'video' &&
+      incomingStream.id !== peerPrimaryStreamIds.get(peerId);
+
+    if (isPresentationTrack) {
+      let stream = presentationStreams.get(peerId);
+      if (!stream) {
+        stream = new MediaStream();
+        presentationStreams.set(peerId, stream);
+        const label = peerNames.get(peerId) || peerId.slice(0, 6);
+        addPresentationElement(peerId, stream, label);
+      }
+
+      incomingStream.getTracks().forEach((track) => {
+        if (!stream.getTracks().find((t) => t.id === track.id)) {
+          stream.addTrack(track);
+        }
+      });
+      return;
+    }
+
     let stream = remoteStreams.get(peerId);
     if (!stream) {
       stream = new MediaStream();
@@ -431,9 +771,10 @@ function createPeerConnection(peerId, initiator) {
       const label = peerNames.get(peerId) || peerId.slice(0, 6);
       addVideoElement(peerId, stream, label);
     }
-    event.streams[0].getTracks().forEach((track) => {
-      if (!stream.getTracks().find((t) => t.id === track.id))
+    incomingStream.getTracks().forEach((track) => {
+      if (!stream.getTracks().find((t) => t.id === track.id)) {
         stream.addTrack(track);
+      }
     });
     if (event.track.kind === 'video') setTileCamState(peerId, true);
   };
@@ -448,10 +789,16 @@ function createPeerConnection(peerId, initiator) {
     }
   };
 
-  if (localStream)
-    localStream
+  const outboundStream = getActiveOutboundStream();
+  if (outboundStream) {
+    outboundStream
       .getTracks()
-      .forEach((track) => peer.addTrack(track, localStream));
+      .forEach((track) => peer.addTrack(track, outboundStream));
+  }
+
+  if (screenStream && screenPeerId === `screen-${userId}`) {
+    attachPresentationTrack(peerId, peer);
+  }
 
   if (initiator) {
     peer
@@ -484,14 +831,36 @@ websocket.addEventListener('message', async (e) => {
   const data = JSON.parse(e.data);
 
   if (data.type === 'room_state') {
+    if (data.presenter) {
+      activePresenterId = data.presenter.id || null;
+      activePresenterName = data.presenter.name || '';
+    }
     for (const peer of data.peers) {
       peerNames.set(peer.id, peer.name);
       createPeerConnection(peer.id, true);
     }
+    layoutTiles();
   }
   //listen for when a peer joins
   if (data.type === 'peer_joined') {
     peerNames.set(data.peerId, data.name);
+  }
+
+  if (data.type === 'present_state') {
+    activePresenterId = data.presenter ? data.presenter.id : null;
+    activePresenterName = data.presenter ? data.presenter.name || '' : '';
+
+    if (!activePresenterId) {
+      for (const peerId of Array.from(presentationStreams.keys())) {
+        removePresentationElement(peerId);
+      }
+    }
+
+    layoutTiles();
+  }
+
+  if (data.type === 'present_denied') {
+    alert(data.message || 'someone is already presenting');
   }
   //for when a peer sends an offer
   if (data.type === 'offer') {
@@ -574,6 +943,10 @@ async function setup() {
   const localVideo = document.getElementById('localVideo');
   if (localVideo) {
     localVideo.srcObject = localStream;
+    syncTileAspectFromVideo(
+      document.getElementById('wrapper-local'),
+      localVideo
+    );
     localVideo.play().catch(console.error);
   }
 
@@ -652,18 +1025,35 @@ document.getElementById('presentBtn')?.addEventListener('click', async () => {
     return;
   }
 
+  if (activePresenterId && activePresenterId !== userId) {
+    alert('someone is already presenting');
+    return;
+  }
+
   try {
+    const response = await websocketSendJson({
+      type: 'present_request',
+      id: userId,
+      name: userName,
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
     screenStream = await navigator.mediaDevices.getDisplayMedia({
       video: { cursor: 'always' },
       audio: false,
     });
     screenPeerId = 'screen-' + userId;
+    presentationStreams.clear();
 
     // Add screen tile into the grid area
     const area = document.getElementById('gridArea');
     const wrapper = document.createElement('div');
     wrapper.id = `wrapper-${screenPeerId}`;
     wrapper.className = 'video-wrapper';
+    wrapper.dataset.localScreen = 'true';
     const vid = document.createElement('video');
     vid.srcObject = screenStream;
     vid.autoplay = true;
@@ -675,11 +1065,11 @@ document.getElementById('presentBtn')?.addEventListener('click', async () => {
     wrapper.appendChild(vid);
     wrapper.appendChild(lbl);
     area.insertBefore(wrapper, area.firstChild); // screen first so layout puts it left/top
+    syncTileAspectFromVideo(wrapper, vid);
     vid.play().catch(console.error);
 
     for (const [peerId, peer] of peerConnections) {
-      const sender = peer.getSenders().find((s) => s.track?.kind === 'video');
-      if (sender) sender.replaceTrack(screenStream.getVideoTracks()[0]);
+      attachPresentationTrack(peerId, peer);
     }
 
     document.getElementById('presentBtn').innerHTML = 'Stop';
@@ -695,8 +1085,47 @@ document.getElementById('presentBtn')?.addEventListener('click', async () => {
   }
 });
 
+function websocketSendJson(payload) {
+  return new Promise((resolve, reject) => {
+    if (websocket.readyState !== WebSocket.OPEN) {
+      resolve({ ok: false });
+      return;
+    }
+
+    const token = Math.random().toString(36).slice(2);
+    const message = { ...payload, token };
+    let timeoutId = null;
+
+    const handleMessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.replyTo !== token) return;
+        websocket.removeEventListener('message', handleMessage);
+        if (timeoutId) clearTimeout(timeoutId);
+        resolve(data);
+      } catch (error) {
+        websocket.removeEventListener('message', handleMessage);
+        if (timeoutId) clearTimeout(timeoutId);
+        reject(error);
+      }
+    };
+
+    websocket.addEventListener('message', handleMessage);
+    websocket.send(JSON.stringify(message));
+
+    timeoutId = setTimeout(() => {
+      websocket.removeEventListener('message', handleMessage);
+      resolve({ ok: false });
+    }, 3000);
+  });
+}
+
 function stopPresenting() {
   if (!screenStream) return;
+
+  for (const peerId of Array.from(presentationSenders.keys())) {
+    removePresentationTrack(peerId);
+  }
 
   screenStream.getTracks().forEach((t) => t.stop());
   screenStream = null;
@@ -705,13 +1134,23 @@ function stopPresenting() {
   if (wrapper) wrapper.remove();
   screenPeerId = null;
 
+  for (const peerId of Array.from(presentationStreams.keys())) {
+    removePresentationElement(peerId);
+  }
+
   if (localStream) {
     const cam = localStream.getVideoTracks()[0];
     for (const [, peer] of peerConnections) {
-      const sender = peer.getSenders().find((s) => s.track?.kind === 'video');
-      if (sender && cam) sender.replaceTrack(cam);
+      const sender = peer
+        .getSenders()
+        .find((s) => s.track && s.track.kind === 'video');
+      if (sender && cam) sender.replaceTrack(cam).catch(console.error);
     }
   }
+
+  websocket.send(
+    JSON.stringify({ type: 'present_release', id: userId, name: userName })
+  );
 
   document.getElementById('presentBtn').innerHTML = 'Present';
   document.getElementById('presentBtn').classList.remove('presenting-active');
