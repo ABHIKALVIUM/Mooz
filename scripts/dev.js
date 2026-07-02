@@ -1,3 +1,5 @@
+//process manager
+
 const { spawn } = require('child_process');
 
 const npmCli = process.env.npm_execpath;
