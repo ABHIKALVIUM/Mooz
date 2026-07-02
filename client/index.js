@@ -813,9 +813,21 @@ function createPeerConnection(peerId, initiator) {
 
   const outboundStream = getActiveOutboundStream();
   if (outboundStream) {
-    outboundStream
-      .getTracks()
-      .forEach((track) => peer.addTrack(track, outboundStream));
+    outboundStream.getTracks().forEach((track) => {
+      const sender = peer.addTrack(track, outboundStream);
+
+      if (track.kind === 'video') {
+        const params = sender.getParameters();
+
+        if (!params.encodings) {
+          params.encodings = [{}];
+        }
+
+        params.encodings[0].maxBitrate = 2_000_000;
+
+        sender.setParameters(params).catch(console.error);
+      }
+    });
   }
 
   if (screenStream && screenPeerId === `screen-${userId}`) {
@@ -837,6 +849,8 @@ function createPeerConnection(peerId, initiator) {
       )
       .catch(console.error);
   }
+
+  updateVideoBitrate();
 
   return peer;
 }
@@ -866,6 +880,8 @@ websocket.addEventListener('message', async (e) => {
   //listen for when a peer joins
   if (data.type === 'peer_joined') {
     peerNames.set(data.peerId, data.name);
+
+    updateVideoBitrate();
   }
 
   if (data.type === 'present_state') {
@@ -926,6 +942,7 @@ websocket.addEventListener('message', async (e) => {
     remoteStreams.delete(data.peerId);
     peerNames.delete(data.peerId);
     removeVideoElement(data.peerId);
+    updateVideoBitrate();
   }
 
   if (data.type === 'mesg') {
@@ -943,6 +960,36 @@ websocket.addEventListener('message', async (e) => {
     }
   }
 });
+
+async function updateVideoBitrate() {
+  let participationCount = peerConnections.size + 1;
+
+  let bitrate;
+
+  if (participantCount <= 2) {
+    bitrate = 2_000_000;
+  } else if (participantCount <= 6) {
+    bitrate = 1_000_000;
+  } else {
+    bitrate = 500_000;
+  }
+
+  for (const peer of peerConnections.values()) {
+    const sender = peer.getSenders().find((s) => s.track?.kind === 'video');
+
+    if (!sender) continue;
+
+    const params = sender.getParameters();
+
+    if (!params.encodings) {
+      params.encodings = [{}];
+    }
+
+    params.encodings[0].maxBitrate = bitrate;
+
+    await sender.setParameters(params).catch(console.error);
+  }
+}
 
 function updateUnreadCount() {
   const unreadCountElem = document.getElementById('unread-count');
