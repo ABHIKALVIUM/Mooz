@@ -22,6 +22,7 @@ export const state = {
   peerPrimaryStreamIds: new Map(),
   peerNames: new Map(),
   peerMetricSnapshots: new Map(),
+  peerDisconnectTimers: new Map(),
 
   localStream: null,
   audioEnabled: true,

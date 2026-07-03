@@ -326,6 +326,7 @@ export function addPresentationElement(peerId, stream, label) {
   video.autoplay = true;
   video.playsInline = true;
   video.muted = false;
+  video.controls = false;
 
   const labelTag = document.createElement('span');
   labelTag.className = 'video-label';
@@ -442,6 +443,7 @@ export function addVideoElement(peerId, stream, label) {
   video.autoplay = true;
   video.playsInline = true;
   video.muted = false;
+  video.controls = false;
 
   const placeholder = document.createElement('div');
   placeholder.className = 'cam-off-placeholder';

@@ -9,6 +9,7 @@ import {
   removeVideoElement,
   updateUnreadCount,
   observeTileViewport,
+  setTileCamState,
 } from './ui.js';
 import {
   refreshDebugMetrics,
@@ -25,10 +26,25 @@ import {
 } from './rtc.js';
 
 export async function setup() {
-  state.localStream = await navigator.mediaDevices.getUserMedia({
-    video: true,
-    audio: true,
-  });
+  try {
+    state.localStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
+  } catch (videoAudioErr) {
+    console.warn('video+audio failed, trying audio-only:', videoAudioErr);
+    try {
+      state.localStream = await navigator.mediaDevices.getUserMedia({
+        video: false,
+        audio: true,
+      });
+      setTileCamState('local', false);
+    } catch (audioErr) {
+      console.warn('audio-only also failed, joining without media:', audioErr);
+      state.localStream = null;
+      setTileCamState('local', false);
+    }
+  }
 
   updateRoomBadge();
   setDebugButtonVisibility(state.debugEnabled);
@@ -235,6 +251,10 @@ state.websocket.addEventListener('message', async (e) => {
 
   if (data.type === 'peer_left') {
     updateRoomMemberCount(data.memberCount || Math.max(1, state.roomMemberCount - 1));
+    if (state.peerDisconnectTimers.has(data.peerId)) {
+      clearTimeout(state.peerDisconnectTimers.get(data.peerId));
+      state.peerDisconnectTimers.delete(data.peerId);
+    }
     const peer = state.peerConnections.get(data.peerId);
     if (peer) {
       peer.close();

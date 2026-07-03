@@ -4,6 +4,7 @@ import {
   addVideoElement,
   removeVideoElement,
   addPresentationElement,
+  updateParticipantCount,
 } from './ui.js';
 
 export const ICE_CONFIG = {
@@ -163,12 +164,44 @@ export function createPeerConnection(peerId, initiator) {
   };
 
   peer.onconnectionstatechange = () => {
-    if (['disconnected', 'failed', 'closed'].includes(peer.connectionState)) {
+    const connState = peer.connectionState;
+
+    if (state.peerDisconnectTimers.has(peerId) && connState !== 'disconnected') {
+      clearTimeout(state.peerDisconnectTimers.get(peerId));
+      state.peerDisconnectTimers.delete(peerId);
+    }
+
+    if (connState === 'disconnected') {
+      if (state.peerDisconnectTimers.has(peerId)) return;
+
+      const disconnectTimer = setTimeout(() => {
+        if (peer.connectionState !== 'disconnected') return;
+
+        peer.close();
+        state.peerConnections.delete(peerId);
+        state.remoteStreams.delete(peerId);
+        state.peerNames.delete(peerId);
+        removeVideoElement(peerId);
+        state.peerDisconnectTimers.delete(peerId);
+        updateParticipantCount();
+      }, 8000);
+
+      state.peerDisconnectTimers.set(peerId, disconnectTimer);
+      return;
+    }
+
+    if (['failed', 'closed'].includes(connState)) {
+      if (state.peerDisconnectTimers.has(peerId)) {
+        clearTimeout(state.peerDisconnectTimers.get(peerId));
+        state.peerDisconnectTimers.delete(peerId);
+      }
+
       peer.close();
       state.peerConnections.delete(peerId);
       state.remoteStreams.delete(peerId);
       state.peerNames.delete(peerId);
       removeVideoElement(peerId);
+      updateParticipantCount();
     }
   };
 
