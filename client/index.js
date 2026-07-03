@@ -151,6 +151,7 @@ const presentationSenders = new Map();
 const peerPrimaryStreamIds = new Map();
 const peerNames = new Map();
 const peerMetricSnapshots = new Map();
+const peerDisconnectTimers = new Map();
 
 let localStream = null;
 let audioEnabled = true;
@@ -540,7 +541,6 @@ function showOverflowTile(hiddenCount, totalCount) {
 }
 
 function bestGrid(count, W, H) {
-  // Find cols/rows that best fills the area at 16:9 without wasting space
   let best = { cols: 1, rows: 1, tileW: 0, tileH: 0 };
   for (let cols = 1; cols <= count; cols++) {
     const rows = Math.ceil(count / cols);
@@ -548,7 +548,6 @@ function bestGrid(count, W, H) {
     const tileH = tileW / (16 / 9);
     const totalH = tileH * rows + (rows - 1) * 6;
     if (totalH <= H) {
-      // Check if scaling up by height gives a better fit
       const scaledH = (H - (rows - 1) * 6) / rows;
       const scaledW = scaledH * (16 / 9);
       const totalW = scaledW * cols + (cols - 1) * 6;
@@ -848,6 +847,7 @@ function addPresentationElement(peerId, stream, label) {
   video.autoplay = true;
   video.playsInline = true;
   video.muted = false;
+  video.controls = false;
 
   const labelTag = document.createElement('span');
   labelTag.className = 'video-label';
@@ -970,6 +970,7 @@ function addVideoElement(peerId, stream, label) {
   video.autoplay = true;
   video.playsInline = true;
   video.muted = false;
+  video.controls = false;
 
   const placeholder = document.createElement('div');
   placeholder.className = 'cam-off-placeholder';
@@ -1095,12 +1096,44 @@ function createPeerConnection(peerId, initiator) {
   };
 
   peer.onconnectionstatechange = () => {
-    if (['disconnected', 'failed', 'closed'].includes(peer.connectionState)) {
+    const state = peer.connectionState;
+
+    if (peerDisconnectTimers.has(peerId) && state !== 'disconnected') {
+      clearTimeout(peerDisconnectTimers.get(peerId));
+      peerDisconnectTimers.delete(peerId);
+    }
+
+    if (state === 'disconnected') {
+      if (peerDisconnectTimers.has(peerId)) return;
+
+      const disconnectTimer = setTimeout(() => {
+        if (peer.connectionState !== 'disconnected') return;
+
+        peer.close();
+        peerConnections.delete(peerId);
+        remoteStreams.delete(peerId);
+        peerNames.delete(peerId);
+        removeVideoElement(peerId);
+        peerDisconnectTimers.delete(peerId);
+        updateParticipantCount();
+      }, 8000);
+
+      peerDisconnectTimers.set(peerId, disconnectTimer);
+      return;
+    }
+
+    if (['failed', 'closed'].includes(state)) {
+      if (peerDisconnectTimers.has(peerId)) {
+        clearTimeout(peerDisconnectTimers.get(peerId));
+        peerDisconnectTimers.delete(peerId);
+      }
+
       peer.close();
       peerConnections.delete(peerId);
       remoteStreams.delete(peerId);
       peerNames.delete(peerId);
       removeVideoElement(peerId);
+      updateParticipantCount();
     }
   };
 
@@ -1235,6 +1268,10 @@ websocket.addEventListener('message', async (e) => {
 
   if (data.type === 'peer_left') {
     updateRoomMemberCount(data.memberCount || Math.max(1, roomMemberCount - 1));
+    if (peerDisconnectTimers.has(data.peerId)) {
+      clearTimeout(peerDisconnectTimers.get(data.peerId));
+      peerDisconnectTimers.delete(data.peerId);
+    }
     const peer = peerConnections.get(data.peerId);
     if (peer) {
       peer.close();
@@ -1452,6 +1489,8 @@ document.getElementById('presentBtn')?.addEventListener('click', async () => {
     vid.autoplay = true;
     vid.playsInline = true;
     vid.muted = true;
+    vid.controls = false;
+
     const lbl = document.createElement('span');
     lbl.className = 'video-label';
     lbl.textContent = `${userName} (screen)`;
