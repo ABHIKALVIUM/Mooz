@@ -1343,17 +1343,35 @@ function updateUnreadCount() {
 // SETUP
 
 async function setup() {
-  localStream = await navigator.mediaDevices.getUserMedia({
-    video: true,
-    audio: true,
-  });
+  // Attempt media acquisition with graceful fallbacks so that
+  // client_ready is always sent even if the camera / mic is denied.
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
+  } catch (videoAudioErr) {
+    console.warn('video+audio failed, trying audio-only:', videoAudioErr);
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        video: false,
+        audio: true,
+      });
+      // Mark local tile as cam-off since we have no video
+      setTileCamState('local', false);
+    } catch (audioErr) {
+      console.warn('audio-only also failed, joining without media:', audioErr);
+      localStream = null;
+      setTileCamState('local', false);
+    }
+  }
 
   updateRoomBadge();
   setDebugButtonVisibility(debugEnabled);
   setDebugPanelVisibility(debugEnabled && metricsPanelOpen);
 
   const localVideo = document.getElementById('localVideo');
-  if (localVideo) {
+  if (localVideo && localStream) {
     localVideo.srcObject = localStream;
     syncTileAspectFromVideo(
       document.getElementById('wrapper-local'),
@@ -1365,6 +1383,8 @@ async function setup() {
   updateParticipantCount();
   layoutTiles();
 
+  // Always send client_ready so the server gives us room_state and
+  // peer connections are established regardless of media availability.
   websocket.send(
     JSON.stringify({
       type: 'client_ready',
