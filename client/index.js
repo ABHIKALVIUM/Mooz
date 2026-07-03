@@ -172,6 +172,15 @@ const MIN_STRIP_TILE_HEIGHT = 100;
 const tileViewportState = new WeakMap();
 let tileViewportObserver = null;
 
+///log
+setInterval(
+  () =>
+    console.log(
+      `Peer connections: ${peerConnections.size}, Remote streams: ${remoteStreams.size}, Peer names: ${peerNames.size}, Peer metric snapshots: ${peerMetricSnapshots.size}`
+    ),
+  5000
+);
+
 //Interactive connectivity establishment config setup
 //Stun and Turn fallback servers
 const ICE_CONFIG = {
