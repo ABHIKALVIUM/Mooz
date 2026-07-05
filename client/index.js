@@ -186,16 +186,16 @@ setInterval(
 //Stun and Turn fallback servers
 const ICE_CONFIG = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.l.google.com:19302' }, //google's free stun server
     {
       urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
+      username: 'openrelayproject', //metered's free turn server
+      credential: 'openrelayproject', //try using your own credentials, if this fails
     },
     {
       urls: 'turn:openrelay.metered.ca:443',
       username: 'openrelayproject',
-      credential: 'openrelayproject',
+      credential: 'openrelayproject', //try using your own credentials, if this fails
     },
   ],
 };
