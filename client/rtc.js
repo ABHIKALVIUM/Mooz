@@ -7,18 +7,18 @@ import {
   updateParticipantCount,
 } from './ui.js';
 
-export const ICE_CONFIG = {
+const ICE_CONFIG = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.l.google.com:19302' }, //google's free stun server
     {
       urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
+      username: 'openrelayproject', //metered's free turn server
+      credential: 'openrelayproject', //try using your own credentials, if this fails
     },
     {
       urls: 'turn:openrelay.metered.ca:443',
       username: 'openrelayproject',
-      credential: 'openrelayproject',
+      credential: 'openrelayproject', //try using your own credentials, if this fails
     },
   ],
 };
@@ -28,7 +28,8 @@ export function getActiveOutboundStream() {
 }
 
 export function attachPresentationTrack(peerId, peer) {
-  if (!state.screenStream || state.screenPeerId !== `screen-${state.userId}`) return;
+  if (!state.screenStream || state.screenPeerId !== `screen-${state.userId}`)
+    return;
 
   const screenTrack = state.screenStream.getVideoTracks()[0];
   if (!screenTrack) return;
@@ -97,7 +98,8 @@ export async function updateVideoBitrate() {
 }
 
 export function createPeerConnection(peerId, initiator) {
-  if (state.peerConnections.has(peerId)) return state.peerConnections.get(peerId);
+  if (state.peerConnections.has(peerId))
+    return state.peerConnections.get(peerId);
 
   const peer = new RTCPeerConnection(ICE_CONFIG);
   state.peerConnections.set(peerId, peer);
@@ -166,7 +168,10 @@ export function createPeerConnection(peerId, initiator) {
   peer.onconnectionstatechange = () => {
     const connState = peer.connectionState;
 
-    if (state.peerDisconnectTimers.has(peerId) && connState !== 'disconnected') {
+    if (
+      state.peerDisconnectTimers.has(peerId) &&
+      connState !== 'disconnected'
+    ) {
       clearTimeout(state.peerDisconnectTimers.get(peerId));
       state.peerDisconnectTimers.delete(peerId);
     }
