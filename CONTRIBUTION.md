@@ -10,6 +10,7 @@ This document is a guide to making that process smooth for everyone. Read throug
 
 - [Code of Conduct](#code-of-conduct)
 - [Before You Start](#before-you-start)
+- [Claiming an Issue](#claiming-an-issue)
 - [How to Contribute](#how-to-contribute)
   - [Reporting Bugs](#reporting-bugs)
   - [Suggesting Features](#suggesting-features)
@@ -32,9 +33,31 @@ In short: treat others the way you'd want to be treated in a code review.
 
 ## Before You Start
 
-- **Check open issues first.** Someone might already be working on the same thing. If you find an existing issue, leave a comment to claim it so work isn't duplicated.
+- **Check open issues first.** Someone might already be working on the same thing. If you find an existing issue you want to work on, comment `.take` to get assigned — see [Claiming an Issue](#claiming-an-issue) below.
 - **For anything non-trivial,** open an issue and describe what you want to build or fix *before* writing the code. It prevents situations where a PR gets declined because the direction doesn't fit.
 - **For small fixes** (typos, docs, minor bugs) — just open the PR directly. No need to over-process it.
+
+---
+
+## Claiming an Issue
+
+We use a bot to handle issue assignments. If you find an open issue you want to work on, all you need to do is comment:
+
+```
+.take
+```
+
+The bot will assign you to the issue and reply with a confirmation. Simple as that.
+
+**A few things to know:**
+
+- **The comment must be exactly `.take`** — nothing before or after it, no punctuation. Just `.take` on its own line.
+- **If the issue is already assigned,** the bot will let you know and won't override the existing assignment. If the assignee has gone quiet for a while, leave a comment tagging a maintainer and ask for it to be reassigned.
+- **If you're already assigned,** the bot will remind you and wish you luck.
+- **Once assigned,** fork the repo, branch off `dev`, and open a PR when you're ready. There's no deadline, but please give a heads-up if life happens and you need to drop it — it frees it up for someone else.
+
+> [!NOTE]
+> The `.take` bot only works on issues, not on pull requests.
 
 ---
 
