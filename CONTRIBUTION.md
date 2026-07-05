@@ -52,12 +52,11 @@ The bot will assign you to the issue and reply with a confirmation. Simple as th
 **A few things to know:**
 
 - **The comment must be exactly `.take`** — nothing before or after it, no punctuation. Just `.take` on its own line.
-- **If the issue is already assigned,** the bot will let you know and won't override the existing assignment. If the assignee has gone quiet for a while, leave a comment tagging a maintainer and ask for it to be reassigned.
-- **If you're already assigned,** the bot will remind you and wish you luck.
-- **Once assigned,** fork the repo, branch off `dev`, and open a PR when you're ready. There's no deadline, but please give a heads-up if life happens and you need to drop it — it frees it up for someone else.
+- **If the issue is already assigned,** the bot will let you know and won't override the existing assignment. If the assignee has maybe gone quiet for a while, leave a comment tagging a maintainer and ask for it to be reassigned.
+- **Once assigned,** fork the repo, create your own branch from `dev`, and open a PR when you're ready. There's no deadline, but please give a heads-up if life happens and you need to drop it — it frees it up for someone else.
 
 > [!NOTE]
-> The `.take` bot only works on issues, not on pull requests.
+> The `.take` bot only works on issues, nothing else.
 
 ---
 
